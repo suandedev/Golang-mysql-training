@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"os"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -19,6 +20,12 @@ type Product struct{
 func main() {
 	// Celar all product record
 	var err = ClearProducts()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// insert milion
+	err = InsertMilionProduct()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -219,5 +226,67 @@ func ClearProducts() error {
 		return err
 	}
 	fmt.Printf("Succes clear products.\n", row)
+	return nil
+}
+
+func InsertMilionProduct() error {
+	db, err := Conn()
+	if err != nil {
+		return err
+	}
+
+	// prepare statement
+	stmt, err := db.Prepare("INSERT INTO products (name, price) VALUES (?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	// Genrate milion products
+	var producs []Product
+	for i := 0; i < 1000000; i++ {
+		product := Product{
+			Name: fmt.Sprintf("Product %d", i),
+			Price: rand.Float64() * 100,
+		}
+		producs = append(producs, product)
+	}
+
+	// Batch
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() // rollback if error
+
+	batchSize := 100
+
+	for _, product := range producs {
+		batchSize -= 1
+		_, err := tx.Stmt(stmt).Exec(product.Name,product.Price)
+		if err != nil {
+			return err
+		}
+		if batchSize == 0 {
+			// commit
+			err = tx.Commit()
+			if err != nil {
+				return err
+			}
+			batchSize = 100
+
+			tx, err = db.Begin()
+			if err != nil{
+				return err
+			}
+		}
+	}
+
+	// commit
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+	fmt.Println("Success inset milion products")
 	return nil
 }
